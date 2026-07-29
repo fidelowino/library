@@ -112,53 +112,62 @@ router.post('/return/:id', authRequired, (req, res) => {
   res.json(get('SELECT * FROM transactions WHERE id = ?', [req.params.id]));
 });
 
-function fetchAllTransactions(status) {
+function fetchAllTransactions(scope) {
   let sql = `
     SELECT t.id, b.book_code, b.title, b.author, br.name as borrower_name, br.type as borrower_type,
            br.identifier as borrower_identifier, br.class_or_dept,
-           t.borrowed_date, t.due_date, t.returned_date, t.status
+           t.borrowed_date, t.due_date, t.returned_date, t.status, t.notes
     FROM transactions t
     JOIN books b ON b.id = t.book_id
     JOIN borrowers br ON br.id = t.borrower_id`;
   const params = [];
-  if (status) {
+  if (scope === 'borrowed') {
     sql += ' WHERE t.status = ?';
-    params.push(status);
+    params.push('borrowed');
+  } else if (scope === 'exchanged') {
+    sql += " WHERE t.notes LIKE 'Exchanged%'";
   }
   sql += ' ORDER BY t.borrowed_date DESC';
   return all(sql, params);
 }
 
-// GET /api/transactions/export/csv?status=borrowed (omit status for all records)
-router.get('/export/csv', authRequired, (req, res) => {
-  const rows = fetchAllTransactions(req.query.status);
-  const isUnreturned = req.query.status === 'borrowed';
+const EXPORT_LABELS = {
+  borrowed: { title: 'Unreturned Books', filename: 'unreturned_books' },
+  exchanged: { title: 'Exchanged Books', filename: 'exchanged_books' },
+};
 
-  const header = 'ID,Book Code,Book Title,Author,Borrower,Admission/Staff No.,Grade/Dept.,Borrower Type,Borrowed Date,Due Date,Returned Date,Status\n';
+// GET /api/transactions/export/csv?status=borrowed|exchanged (omit for all records)
+router.get('/export/csv', authRequired, (req, res) => {
+  const scope = req.query.status;
+  const rows = fetchAllTransactions(scope);
+  const label = EXPORT_LABELS[scope];
+
+  const header = 'ID,Book Code,Book Title,Author,Borrower,Admission/Staff No.,Grade/Dept.,Borrower Type,Borrowed Date,Due Date,Returned Date,Status,Notes\n';
   const csvRows = rows.map(r =>
-    [r.id, r.book_code, r.title, r.author, r.borrower_name, r.borrower_identifier, r.class_or_dept, r.borrower_type, r.borrowed_date, r.due_date, r.returned_date || '', r.status]
+    [r.id, r.book_code, r.title, r.author, r.borrower_name, r.borrower_identifier, r.class_or_dept, r.borrower_type, r.borrowed_date, r.due_date, r.returned_date || '', r.status, r.notes || '']
       .map(v => `"${(v ?? '').toString().replace(/"/g, '""')}"`)
       .join(',')
   );
 
   const csv = header + csvRows.join('\n');
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', `attachment; filename="${isUnreturned ? 'unreturned_books' : 'library_transactions'}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${label ? label.filename : 'library_transactions'}.csv"`);
   res.send(csv);
 });
 
-// GET /api/transactions/export/pdf?status=borrowed (omit status for all records)
+// GET /api/transactions/export/pdf?status=borrowed|exchanged (omit for all records)
 router.get('/export/pdf', authRequired, (req, res) => {
   const PDFDocument = require('pdfkit');
-  const rows = fetchAllTransactions(req.query.status);
-  const isUnreturned = req.query.status === 'borrowed';
+  const scope = req.query.status;
+  const rows = fetchAllTransactions(scope);
+  const label = EXPORT_LABELS[scope];
 
   const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'landscape' });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${isUnreturned ? 'unreturned_books' : 'library_transactions'}.pdf"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${label ? label.filename : 'library_transactions'}.pdf"`);
   doc.pipe(res);
 
-  doc.fontSize(16).text(`Dawamu School Library — ${isUnreturned ? 'Unreturned Books' : 'Loan Records'}`, { align: 'left' });
+  doc.fontSize(16).text(`Dawamu School Library — ${label ? label.title : 'Loan Records'}`, { align: 'left' });
   doc.fontSize(9).fillColor('#555').text(`Generated ${todayStr()}`, { align: 'left' });
   doc.moveDown(1);
 
