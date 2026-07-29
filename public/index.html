@@ -8,13 +8,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --navy:#1E6B4E;
-    --navy-deep:#123D2C;
+    --navy:#15803D;
+    --navy-deep:#0F5C2E;
     --ink:#1A1D23;
     --muted:#697180;
-    --bg:#F4F8F5;
+    --bg:#F1FBF5;
     --surface:#FFFFFF;
-    --border:#DDEAE2;
+    --border:#D7ECE0;
     --green:#16A34A;
     --green-bg:#DCFCE7;
     --amber:#8A5A00;
@@ -140,6 +140,23 @@
   .settings-msg.ok{ color:var(--green); }
   .settings-msg.err{ color:var(--red); }
 
+  /* Exchange page */
+  .category-tabs{ display:flex; gap:8px; margin-bottom:18px; }
+  .category-tab{
+    padding:10px 20px; border:1.5px solid var(--border); border-radius:8px; background:#fff;
+    color:var(--ink); font-weight:600; font-size:13.5px; cursor:pointer; font-family:inherit;
+  }
+  .category-tab:hover{ border-color:var(--navy); }
+  .category-tab.active{ background:var(--navy); border-color:var(--navy); color:#fff; }
+  .exchange-card{ background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:26px; max-width:480px; box-shadow:var(--shadow); }
+  .exchange-card h3{ font-size:15px; margin-bottom:4px; color:var(--navy-deep); }
+  .exchange-current{ background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:14px 16px; margin:16px 0; }
+  .exchange-current .label{ font-size:11px; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); font-weight:600; margin-bottom:4px; }
+  .exchange-current .value{ font-size:14px; font-weight:600; color:var(--navy-deep); }
+  .exchange-msg{ font-size:12.5px; margin-top:10px; min-height:16px; }
+  .exchange-msg.ok{ color:var(--green); }
+  .exchange-msg.err{ color:var(--red); }
+
   @media (max-width:820px){
     #app{ flex-direction:column; }
     #sidebar{ width:100%; flex-direction:row; overflow-x:auto; padding:10px 0; }
@@ -173,6 +190,7 @@
       <a data-page="books" class="active" onclick="goTo('books')">Book Inventory</a>
       <a data-page="borrowers" onclick="goTo('borrowers')">Borrowers</a>
       <a data-page="loans" onclick="goTo('loans')">Borrow / Return</a>
+      <a data-page="exchange" onclick="goTo('exchange')">Exchange</a>
       <a data-page="overdue" onclick="goTo('overdue')">Overdue</a>
       <a data-page="settings" onclick="goTo('settings')">Settings</a>
     </nav>
@@ -248,6 +266,7 @@ function goTo(page){
   if(page==='books') renderBooks();
   if(page==='borrowers') renderBorrowers();
   if(page==='loans') renderLoans();
+  if(page==='exchange') renderExchange();
   if(page==='overdue') renderOverdue();
   if(page==='settings') renderSettings();
 }
@@ -318,7 +337,7 @@ function openBookModal(book=null){
     <h3>${isEdit?'Edit book':'Add book'}</h3>
     <div class="field-row">
       <div class="field"><label>Book code</label><input id="f-code" value="${isEdit?escapeAttr(book.book_code||''):''}" placeholder="e.g. LIB-0142"></div>
-      <div class="field"><label>Category</label><input id="f-category" value="${isEdit?escapeAttr(book.category||''):''}" placeholder="e.g. Square Ruled, Graph, Fiction"></div>
+      <div class="field"><label>Category</label><input id="f-category" value="${isEdit?escapeAttr(book.category||''):''}" placeholder="Single Ruled, Graph, or Square Ruled"></div>
     </div>
     <div class="field"><label>Title *</label><input id="f-title" value="${isEdit?escapeAttr(book.title):''}"></div>
     <div class="field-row">
@@ -592,6 +611,107 @@ function downloadTxnPdf(){
       const a = document.createElement('a'); a.href=url; a.download='library_transactions.pdf'; a.click();
       URL.revokeObjectURL(url);
     }).catch(()=>toast('Export failed', true));
+}
+
+// ---------- Exchange (filled exercise books) ----------
+const EXCHANGE_CATEGORIES = ['Single Ruled', 'Graph', 'Square Ruled'];
+let EXCHANGE_STATE = { category: EXCHANGE_CATEGORIES[0], borrowerId: '' };
+
+async function renderExchange(){
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="page-head">
+      <div><div class="badge">Exercise Books</div><h2>Exchange Filled Books</h2></div>
+    </div>
+    <div class="category-tabs">
+      ${EXCHANGE_CATEGORIES.map(c => `<button class="category-tab ${c===EXCHANGE_STATE.category?'active':''}" onclick="setExchangeCategory('${c}')">${c}</button>`).join('')}
+    </div>
+    <div class="exchange-card">
+      <h3>Student</h3>
+      <p class="sub" style="font-size:12.5px;color:var(--muted);margin:0 0 14px;">Select a student to check their current ${escapeHtml(EXCHANGE_STATE.category)} book.</p>
+      <select id="exchange-borrower"><option value="">Select a student…</option></select>
+      <div id="exchange-result"></div>
+    </div>
+  `;
+  try{
+    const borrowers = await api('/borrowers?type=student');
+    const sel = document.getElementById('exchange-borrower');
+    borrowers.forEach(b=>{
+      const opt = document.createElement('option');
+      opt.value = b.id;
+      opt.textContent = `${b.name} — ${b.identifier || 'no admission no.'}${b.class_or_dept ? ' ('+b.class_or_dept+')' : ''}`;
+      if(String(b.id)===String(EXCHANGE_STATE.borrowerId)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', ()=>{ EXCHANGE_STATE.borrowerId = sel.value; checkExchangeStatus(); });
+    if(EXCHANGE_STATE.borrowerId) checkExchangeStatus();
+  }catch(e){
+    document.getElementById('exchange-result').innerHTML = `<div class="exchange-msg err">Could not load students — ${e.message}</div>`;
+  }
+}
+function setExchangeCategory(cat){
+  EXCHANGE_STATE.category = cat;
+  renderExchange();
+}
+async function checkExchangeStatus(){
+  const resultEl = document.getElementById('exchange-result');
+  if(!EXCHANGE_STATE.borrowerId){ resultEl.innerHTML = ''; return; }
+  resultEl.innerHTML = '<div class="exchange-msg">Checking…</div>';
+  try{
+    const rows = await api(`/transactions?borrower_id=${EXCHANGE_STATE.borrowerId}&status=borrowed`);
+    const current = rows.find(t => t.category === EXCHANGE_STATE.category);
+
+    if(current){
+      resultEl.innerHTML = `
+        <div class="exchange-current">
+          <div class="label">Current ${escapeHtml(EXCHANGE_STATE.category)} book</div>
+          <div class="value">${escapeHtml(current.title)}${current.book_code ? ' ('+current.book_code+')' : ''}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;">Issued ${current.borrowed_date}</div>
+        </div>
+        <button class="btn block" onclick="submitExchange(${current.id})">Exchange — book filled</button>
+        <div class="exchange-msg" id="exchange-msg"></div>
+      `;
+    } else {
+      const books = await api(`/books?category=${encodeURIComponent(EXCHANGE_STATE.category)}&available=true`);
+      if(books.length === 0){
+        resultEl.innerHTML = `<div class="exchange-current"><div class="value">No ${escapeHtml(EXCHANGE_STATE.category)} book currently issued, and none in stock to issue.</div></div>`;
+        return;
+      }
+      resultEl.innerHTML = `
+        <div class="exchange-current">
+          <div class="label">No ${escapeHtml(EXCHANGE_STATE.category)} book on record for this student yet</div>
+        </div>
+        <div class="field"><label>Book</label>
+          <select id="exchange-new-book">${books.map(b=>`<option value="${b.id}">${escapeHtml(b.title)}${b.book_code ? ' ('+b.book_code+')' : ''} — ${b.copies_available} available</option>`).join('')}</select>
+        </div>
+        <button class="btn block" onclick="submitIssueNew()">Issue new copy</button>
+        <div class="exchange-msg" id="exchange-msg"></div>
+      `;
+    }
+  }catch(e){
+    resultEl.innerHTML = `<div class="exchange-msg err">Could not check status — ${e.message}</div>`;
+  }
+}
+async function submitExchange(txnId){
+  const msgEl = document.getElementById('exchange-msg');
+  try{
+    await api(`/transactions/exchange/${txnId}`, {method:'POST'});
+    toast('Book exchanged');
+    checkExchangeStatus();
+  }catch(e){
+    msgEl.textContent = e.message; msgEl.className = 'exchange-msg err';
+  }
+}
+async function submitIssueNew(){
+  const bookId = document.getElementById('exchange-new-book').value;
+  const msgEl = document.getElementById('exchange-msg');
+  try{
+    await api('/transactions/borrow', {method:'POST', body:JSON.stringify({ book_id: bookId, borrower_id: EXCHANGE_STATE.borrowerId, loan_days: 365 })});
+    toast('Book issued');
+    checkExchangeStatus();
+  }catch(e){
+    msgEl.textContent = e.message; msgEl.className = 'exchange-msg err';
+  }
 }
 
 // ---------- Overdue ----------
