@@ -8,15 +8,15 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --navy:#1B3358;
-    --navy-deep:#12233D;
+    --navy:#1E6B4E;
+    --navy-deep:#123D2C;
     --ink:#1A1D23;
     --muted:#697180;
-    --bg:#F5F6F8;
+    --bg:#F4F8F5;
     --surface:#FFFFFF;
-    --border:#E1E4EA;
-    --green:#1F7A4D;
-    --green-bg:#E7F4ED;
+    --border:#DDEAE2;
+    --green:#16A34A;
+    --green-bg:#DCFCE7;
     --amber:#8A5A00;
     --amber-bg:#FCF1DC;
     --red:#B3261E;
@@ -65,19 +65,19 @@
   #app{ display:none; min-height:100vh; }
   #sidebar{ width:232px; background:var(--navy-deep); color:#fff; display:flex; flex-direction:column; padding:22px 0; flex-shrink:0; }
   #sidebar .brand{ padding:0 22px 20px; border-bottom:1px solid rgba(255,255,255,0.1); margin-bottom:14px; }
-  #sidebar .brand .badge{ font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:#9FB3CC; font-weight:600; margin-bottom:4px; }
+  #sidebar .brand .badge{ font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:#A3D9BC; font-weight:600; margin-bottom:4px; }
   #sidebar .brand h1{ font-size:18px; color:#fff; }
   #sidebar nav a{
     display:block; padding:10px 22px; color:rgba(255,255,255,0.72); text-decoration:none; font-size:13.5px; font-weight:500;
     border-left:3px solid transparent; cursor:pointer;
   }
   #sidebar nav a:hover{ background:rgba(255,255,255,0.06); color:#fff; }
-  #sidebar nav a.active{ background:rgba(255,255,255,0.09); color:#fff; border-left-color:#5B8DEF; }
+  #sidebar nav a.active{ background:rgba(255,255,255,0.09); color:#fff; border-left-color:#4ADE80; }
   #sidebar .spacer{ flex:1; }
   #sidebar .user-block{ padding:14px 22px 0; border-top:1px solid rgba(255,255,255,0.1); margin-top:8px; }
   #sidebar .user-block .name{ font-size:13px; font-weight:600; color:#fff; }
-  #sidebar .user-block .role{ font-size:11px; color:#9FB3CC; text-transform:capitalize; margin-bottom:10px; }
-  #sidebar .user-block a{ display:block; font-size:12px; color:#9FB3CC; cursor:pointer; padding:4px 0; text-decoration:none; }
+  #sidebar .user-block .role{ font-size:11px; color:#A3D9BC; text-transform:capitalize; margin-bottom:10px; }
+  #sidebar .user-block a{ display:block; font-size:12px; color:#A3D9BC; cursor:pointer; padding:4px 0; text-decoration:none; }
   #sidebar .user-block a:hover{ color:#fff; }
 
   #main{ flex:1; padding:30px 38px; max-width:1180px; }
@@ -156,11 +156,10 @@
   <div class="login-card">
     <div class="badge">Dawamu School</div>
     <h1>Library Management</h1>
-    <div class="field"><label>Username</label><input type="text" id="login-username" value="admin"></div>
-    <div class="field"><label>Password</label><input type="password" id="login-password" value="admin123"></div>
+    <div class="field"><label>Username</label><input type="text" id="login-username" value=""></div>
+    <div class="field"><label>Password</label><input type="password" id="login-password" value=""></div>
     <button class="btn block" onclick="login()">Sign in</button>
     <div class="login-err" id="login-err"></div>
-    <div class="login-hint">Default account: <span class="mono">admin</span> / <span class="mono">admin123</span>. Change this from Settings after signing in.</div>
   </div>
 </div>
 
@@ -494,13 +493,13 @@ async function renderLoans(q=''){
       <div class="head-actions">
         <button class="btn secondary" onclick="downloadCsv()">Export CSV</button>
         <button class="btn secondary" onclick="downloadTxnPdf()">Download PDF</button>
-        <button class="btn" onclick="openBorrowModal()">New loan</button>
+        <button class="btn" onclick="openBorrowModal()">New borrow</button>
       </div>
     </div>
     <div class="toolbar">
       <input type="text" id="loan-search" placeholder="Filter by book title, code, or borrower..." value="${q}">
       <select id="loan-status">
-        <option value="">All loans</option>
+        <option value="">All borrows</option>
         <option value="borrowed">Currently out</option>
         <option value="returned">Returned</option>
       </select>
@@ -523,7 +522,7 @@ async function loadLoans(q=''){
     if(status) params.set('status', status);
     if(q) params.set('q', q);
     const rows = await api(`/transactions?${params.toString()}`);
-    if(rows.length===0){ el.innerHTML = '<div class="empty-state"><div class="title">No loans found</div>Start a new loan, or try a different filter.</div>'; return; }
+    if(rows.length===0){ el.innerHTML = '<div class="empty-state"><div class="title">No borrow records found</div>Start a new borrow, or try a different filter.</div>'; return; }
     const today = new Date().toISOString().split('T')[0];
     el.innerHTML = `<table><thead><tr><th>Book</th><th>Borrower</th><th>Grade / Dept.</th><th>Borrowed</th><th>Due</th><th>Status</th><th></th></tr></thead><tbody>
       ${rows.map(t=>{
@@ -539,28 +538,28 @@ async function loadLoans(q=''){
         </tr>`;
       }).join('')}
     </tbody></table>`;
-  }catch(e){ el.innerHTML = `<div class="empty-state">Could not load loans — ${e.message}</div>`; }
+  }catch(e){ el.innerHTML = `<div class="empty-state">Could not load borrow records — ${e.message}</div>`; }
 }
 async function openBorrowModal(){
-  document.getElementById('modal-body').innerHTML = `<h3>New loan</h3><div class="empty-state">Loading…</div>`;
+  document.getElementById('modal-body').innerHTML = `<h3>New borrow</h3><div class="empty-state">Loading…</div>`;
   openModal();
   try{
     const [books, borrowers] = await Promise.all([api('/books?available=true'), api('/borrowers')]);
     document.getElementById('modal-body').innerHTML = `
-      <h3>New loan</h3>
+      <h3>New borrow</h3>
       <div class="field"><label>Book *</label>
         <select id="f-book">${books.map(b=>`<option value="${b.id}">${escapeHtml(b.title)}${b.book_code ? ' ('+b.book_code+')' : ''} — ${b.copies_available} available</option>`).join('')}</select>
       </div>
       <div class="field"><label>Borrower *</label>
         <select id="f-borrower">${borrowers.map(b=>`<option value="${b.id}">${escapeHtml(b.name)} — ${escapeHtml(b.identifier||b.type)}</option>`).join('')}</select>
       </div>
-      <div class="field"><label>Loan period (days)</label><input id="f-loan-days" type="number" value="14" min="1"></div>
+      <div class="field"><label>Borrow period (days)</label><input id="f-loan-days" type="number" value="14" min="1"></div>
       <div class="modal-actions">
         <button class="btn secondary" onclick="closeModal()">Cancel</button>
         <button class="btn" onclick="submitBorrow()">Issue book</button>
       </div>
     `;
-  }catch(e){ document.getElementById('modal-body').innerHTML = `<h3>New loan</h3><div class="empty-state">${e.message}</div>`; }
+  }catch(e){ document.getElementById('modal-body').innerHTML = `<h3>New borrow</h3><div class="empty-state">${e.message}</div>`; }
 }
 async function submitBorrow(){
   const book_id = document.getElementById('f-book').value;
