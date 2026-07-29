@@ -20,7 +20,7 @@ function todayStr() {
 router.get('/', authRequired, (req, res) => {
   const { status, borrower_id, book_id, q } = req.query;
   let sql = `
-    SELECT t.*, b.title, b.author, b.book_code, br.name as borrower_name, br.type as borrower_type, br.identifier as borrower_identifier, br.class_or_dept
+    SELECT t.*, b.title, b.author, b.book_code, b.category, br.name as borrower_name, br.type as borrower_type, br.identifier as borrower_identifier, br.class_or_dept
     FROM transactions t
     JOIN books b ON b.id = t.book_id
     JOIN borrowers br ON br.id = t.borrower_id
@@ -197,6 +197,48 @@ router.get('/export/pdf', authRequired, (req, res) => {
   });
 
   doc.end();
+});
+
+// POST /api/transactions/exchange/:id
+// For consumable exercise books (single ruled, graph, square ruled): the student's
+// filled book is retired from circulation entirely (not returned to the shelf),
+// and a fresh copy of the same title is issued to them in one step.
+router.post('/exchange/:id', authRequired, (req, res) => {
+  const txn = get('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
+  if (!txn) return res.status(404).json({ error: 'Record not found' });
+  if (txn.status !== 'borrowed') {
+    return res.status(400).json({ error: 'This book is not currently checked out' });
+  }
+
+  const book = get('SELECT * FROM books WHERE id = ?', [txn.book_id]);
+  if (!book) return res.status(404).json({ error: 'Book not found' });
+
+  if (book.copies_available < 1) {
+    return res.status(400).json({ error: 'No fresh copies in stock to issue a replacement' });
+  }
+
+  const today = todayStr();
+
+  // Old copy is filled and permanently retired — total stock drops by one,
+  // and it was never counted back into "available" since it's not going back on the shelf.
+  run(
+    `UPDATE transactions SET status = 'returned', returned_date = ?, notes = 'Exchanged - book filled' WHERE id = ?`,
+    [today, req.params.id]
+  );
+  run('UPDATE books SET copies_total = copies_total - 1, copies_available = copies_available - 1 WHERE id = ?', [book.id]);
+
+  // Issue a fresh copy to the same student. Exercise books aren't due back on a
+  // schedule, so give this a long horizon rather than the usual 14-day loan.
+  const dueDate = addDays(today, 365);
+  const newId = insert(
+    `INSERT INTO transactions (book_id, borrower_id, borrowed_date, due_date, status) VALUES (?, ?, ?, ?, 'borrowed')`,
+    [book.id, txn.borrower_id, today, dueDate]
+  );
+
+  res.status(201).json(get(
+    `SELECT t.*, b.title, b.book_code, b.category FROM transactions t JOIN books b ON b.id = t.book_id WHERE t.id = ?`,
+    [newId]
+  ));
 });
 
 module.exports = router;
