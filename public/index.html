@@ -191,7 +191,6 @@
       <a data-page="borrowers" onclick="goTo('borrowers')">Borrowers</a>
       <a data-page="loans" onclick="goTo('loans')">Borrow / Return</a>
       <a data-page="exchange" onclick="goTo('exchange')">Exchange</a>
-      <a data-page="overdue" onclick="goTo('overdue')">Overdue</a>
       <a data-page="settings" onclick="goTo('settings')">Settings</a>
     </nav>
     <div class="spacer"></div>
@@ -267,7 +266,6 @@ function goTo(page){
   if(page==='borrowers') renderBorrowers();
   if(page==='loans') renderLoans();
   if(page==='exchange') renderExchange();
-  if(page==='overdue') renderOverdue();
   if(page==='settings') renderSettings();
 }
 
@@ -510,6 +508,10 @@ async function renderLoans(q=''){
     <div class="page-head">
       <div><div class="badge">Circulation Desk</div><h2>Borrow / Return</h2></div>
       <div class="head-actions">
+        <select id="export-scope">
+          <option value="">All records</option>
+          <option value="borrowed">Unreturned only</option>
+        </select>
         <button class="btn secondary" onclick="downloadCsv()">Export CSV</button>
         <button class="btn secondary" onclick="downloadTxnPdf()">Download PDF</button>
         <button class="btn" onclick="openBorrowModal()">New borrow</button>
@@ -595,29 +597,33 @@ async function returnBook(id){
   catch(e){ toast(e.message, true); }
 }
 function downloadCsv(){
-  fetch(`${API}/transactions/export/csv`, { headers:{'Authorization':`Bearer ${TOKEN}`} })
+  const scope = document.getElementById('export-scope')?.value || '';
+  const params = scope ? `?status=${scope}` : '';
+  fetch(`${API}/transactions/export/csv${params}`, { headers:{'Authorization':`Bearer ${TOKEN}`} })
     .then(res=>res.blob())
     .then(blob=>{
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download='library_transactions.csv'; a.click();
+      const a = document.createElement('a'); a.href=url; a.download = scope==='borrowed' ? 'unreturned_books.csv' : 'library_transactions.csv'; a.click();
       URL.revokeObjectURL(url);
     }).catch(()=>toast('Export failed', true));
 }
 function downloadTxnPdf(){
-  fetch(`${API}/transactions/export/pdf`, { headers:{'Authorization':`Bearer ${TOKEN}`} })
+  const scope = document.getElementById('export-scope')?.value || '';
+  const params = scope ? `?status=${scope}` : '';
+  fetch(`${API}/transactions/export/pdf${params}`, { headers:{'Authorization':`Bearer ${TOKEN}`} })
     .then(res=>res.blob())
     .then(blob=>{
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download='library_transactions.pdf'; a.click();
+      const a = document.createElement('a'); a.href=url; a.download = scope==='borrowed' ? 'unreturned_books.pdf' : 'library_transactions.pdf'; a.click();
       URL.revokeObjectURL(url);
     }).catch(()=>toast('Export failed', true));
 }
 
 // ---------- Exchange (filled exercise books) ----------
 const EXCHANGE_CATEGORIES = ['Single Ruled', 'Graph', 'Square Ruled'];
-let EXCHANGE_STATE = { category: EXCHANGE_CATEGORIES[0], borrowerId: '' };
+let EXCHANGE_STATE = { category: EXCHANGE_CATEGORIES[0], borrowerId: '', name: '', grade: '', adm: '' };
 
-async function renderExchange(){
+function renderExchange(){
   const main = document.getElementById('main');
   main.innerHTML = `
     <div class="page-head">
@@ -628,30 +634,52 @@ async function renderExchange(){
     </div>
     <div class="exchange-card">
       <h3>Student</h3>
-      <p class="sub" style="font-size:12.5px;color:var(--muted);margin:0 0 14px;">Select a student to check their current ${escapeHtml(EXCHANGE_STATE.category)} book.</p>
-      <select id="exchange-borrower"><option value="">Select a student…</option></select>
+      <p class="sub" style="font-size:12.5px;color:var(--muted);margin:0 0 14px;">Enter the student's details to check their current ${escapeHtml(EXCHANGE_STATE.category)} book. If they're not on record yet, entering their details here registers them.</p>
+      <div class="field-row">
+        <div class="field"><label>Student name *</label><input id="exchange-name" value="${escapeAttr(EXCHANGE_STATE.name)}" placeholder="e.g. Grace Wanjiru"></div>
+        <div class="field"><label>Grade</label><input id="exchange-grade" value="${escapeAttr(EXCHANGE_STATE.grade)}" placeholder="e.g. Grade 7 Blue"></div>
+      </div>
+      <div class="field"><label>Admission No. *</label><input id="exchange-adm" value="${escapeAttr(EXCHANGE_STATE.adm)}" placeholder="e.g. ADM2201"></div>
+      <button class="btn block" onclick="findExchangeStudent()" style="margin-top:14px;">Continue</button>
+      <div class="exchange-msg" id="exchange-find-msg"></div>
       <div id="exchange-result"></div>
     </div>
   `;
-  try{
-    const borrowers = await api('/borrowers?type=student');
-    const sel = document.getElementById('exchange-borrower');
-    borrowers.forEach(b=>{
-      const opt = document.createElement('option');
-      opt.value = b.id;
-      opt.textContent = `${b.name} — ${b.identifier || 'no admission no.'}${b.class_or_dept ? ' ('+b.class_or_dept+')' : ''}`;
-      if(String(b.id)===String(EXCHANGE_STATE.borrowerId)) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.addEventListener('change', ()=>{ EXCHANGE_STATE.borrowerId = sel.value; checkExchangeStatus(); });
-    if(EXCHANGE_STATE.borrowerId) checkExchangeStatus();
-  }catch(e){
-    document.getElementById('exchange-result').innerHTML = `<div class="exchange-msg err">Could not load students — ${e.message}</div>`;
-  }
+  if(EXCHANGE_STATE.borrowerId) checkExchangeStatus();
 }
 function setExchangeCategory(cat){
   EXCHANGE_STATE.category = cat;
   renderExchange();
+}
+async function findExchangeStudent(){
+  const name = document.getElementById('exchange-name').value.trim();
+  const grade = document.getElementById('exchange-grade').value.trim();
+  const adm = document.getElementById('exchange-adm').value.trim();
+  const msgEl = document.getElementById('exchange-find-msg');
+  msgEl.textContent = ''; msgEl.className = 'exchange-msg';
+
+  if(!name || !adm){ msgEl.textContent = 'Name and admission number are required.'; msgEl.className = 'exchange-msg err'; return; }
+
+  EXCHANGE_STATE.name = name;
+  EXCHANGE_STATE.grade = grade;
+  EXCHANGE_STATE.adm = adm;
+
+  try{
+    const matches = await api(`/borrowers?q=${encodeURIComponent(adm)}&type=student`);
+    const existing = matches.find(b => (b.identifier || '').toLowerCase() === adm.toLowerCase());
+
+    if(existing){
+      EXCHANGE_STATE.borrowerId = existing.id;
+      checkExchangeStatus();
+    } else {
+      const created = await api('/borrowers', {method:'POST', body: JSON.stringify({ name, type:'student', identifier: adm, class_or_dept: grade })});
+      EXCHANGE_STATE.borrowerId = created.id;
+      toast('New student registered');
+      checkExchangeStatus();
+    }
+  }catch(e){
+    msgEl.textContent = e.message; msgEl.className = 'exchange-msg err';
+  }
 }
 async function checkExchangeStatus(){
   const resultEl = document.getElementById('exchange-result');
@@ -712,34 +740,6 @@ async function submitIssueNew(){
   }catch(e){
     msgEl.textContent = e.message; msgEl.className = 'exchange-msg err';
   }
-}
-
-// ---------- Overdue ----------
-async function renderOverdue(){
-  const main = document.getElementById('main');
-  main.innerHTML = `
-    <div class="page-head">
-      <div><div class="badge">Follow-up</div><h2>Overdue Books</h2></div>
-    </div>
-    <div id="overdue-table"></div>
-  `;
-  const el = document.getElementById('overdue-table');
-  el.innerHTML = '<div class="empty-state">Loading…</div>';
-  try{
-    const rows = await api('/transactions/overdue');
-    if(rows.length===0){ el.innerHTML = '<div class="empty-state"><div class="title">Nothing overdue</div>All borrowed books are within their due dates.</div>'; return; }
-    el.innerHTML = `<table><thead><tr><th>Book</th><th>Borrower</th><th>Grade / Dept.</th><th>Contact</th><th>Due date</th><th></th></tr></thead><tbody>
-      ${rows.map(t=>`
-        <tr>
-          <td><strong>${escapeHtml(t.title)}</strong><br><span class="mono" style="font-size:11px;color:var(--muted);">${t.book_code||''}</span></td>
-          <td>${escapeHtml(t.borrower_name)}</td>
-          <td>${escapeHtml(t.class_or_dept||'—')}</td>
-          <td>${escapeHtml(t.contact||'—')}</td>
-          <td class="mono" style="color:var(--red);">${t.due_date}</td>
-          <td><button class="btn small" onclick="returnBook(${t.id})">Mark returned</button></td>
-        </tr>`).join('')}
-    </tbody></table>`;
-  }catch(e){ el.innerHTML = `<div class="empty-state">Could not load overdue list — ${e.message}</div>`; }
 }
 
 // ---------- Settings ----------
