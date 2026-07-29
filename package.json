@@ -1,0 +1,84 @@
+# Dawamu Library — Standalone Module
+
+Standalone book inventory & borrow/return system, built to merge into the main
+Dawamu School Management System (DMS) later. Same stack as DMS: Node.js/Express,
+SQLite (via sql.js), JWT auth.
+
+## What it does
+- **Book inventory**: add/edit/delete books, with a book code, category, shelf location, and total vs. available copies
+- **Delivery tracking**: each book records date received and who delivered it (supplier/person)
+- **Search & filters**: search books by title/author/ISBN/code, filter by category or availability; filter loans by book, code, or borrower
+- **Borrowers**: register students (name, admission no., grade) or staff (name, staff no., department)
+- **Borrow / Return**: issue a book (auto-decrements available copies), mark returned (auto-increments copies) — no fines, since this is a school setup
+- **Overdue tracking**: dedicated view of everything currently overdue, with contact info
+- **CSV & PDF export**: download the full loan history or book inventory as CSV or a formatted PDF
+- **Settings**: change your own password from the app (no need to touch the database)
+
+## Deploying (e.g. Render.com)
+
+1. Push this folder to its own GitHub repo (make sure it's at the repo root, not nested in a subfolder — Render looks for `package.json` at the root).
+2. On Render: New → Web Service → connect the repo.
+3. Build command: `npm install`
+4. Start command: `npm start`
+5. Add environment variables from `.env.example` (at minimum, set `JWT_SECRET` to a long random string).
+6. Note: the SQLite file lives on local disk (`db/library.sqlite`), so on most free-tier hosts it resets on redeploy. For persistent data across deploys, use a paid plan with a persistent disk, or swap in a hosted database later.
+
+## Run it
+
+```bash
+npm install
+node server.js
+```
+
+Then open **http://localhost:5500** in your browser.
+
+Default login: `admin` / `admin123` — change this after first login (or via
+`POST /api/auth/register` once logged in as admin).
+
+## Project structure
+
+```
+dawamu-library/
+├── server.js              # entry point, seeds default admin
+├── db/database.js         # sql.js setup + query helpers (persists to db/library.sqlite)
+├── middleware/auth.js     # JWT verification
+├── routes/
+│   ├── auth.js             # login, register
+│   ├── books.js             # book CRUD + search
+│   ├── borrowers.js         # borrower CRUD + search
+│   └── transactions.js      # borrow/return, overdue, CSV export
+└── public/index.html       # frontend (single page, no build step)
+```
+
+## API quick reference
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | /api/auth/login | Get a JWT |
+| GET | /api/auth/me | Current user info |
+| PUT | /api/auth/change-password | Change your own password |
+| GET | /api/books?q=&category=&available=true | Search/list books (q matches title, author, ISBN, or code) |
+| POST | /api/books | Add a book (title, book_code, category, date_received, delivered_by, etc.) |
+| PUT/DELETE | /api/books/:id | Edit / remove a book |
+| GET | /api/books/export/pdf | Download inventory as PDF |
+| GET | /api/borrowers?q=&type= | Search/list borrowers |
+| POST | /api/borrowers | Add a borrower |
+| POST | /api/transactions/borrow | Issue a book `{book_id, borrower_id, loan_days}` |
+| POST | /api/transactions/return/:id | Mark a loan returned |
+| GET | /api/transactions?status=&q= | List/filter loans (q matches book title, code, or borrower name) |
+| GET | /api/transactions/overdue | Everything currently overdue |
+| GET | /api/transactions/export/csv | Download full loan history as CSV |
+| GET | /api/transactions/export/pdf | Download full loan history as PDF |
+
+No fines are calculated anywhere — this is intentional for a school setting.
+Loan period defaults to 14 days, adjustable per loan or in `routes/transactions.js` (`DEFAULT_LOAN_DAYS`).
+
+## Merging into DMS later
+
+Everything here is namespaced under `/api/...` and uses its own SQLite file
+(`db/library.sqlite`), so folding it into DMS mainly means:
+1. Copy `routes/books.js`, `routes/borrowers.js`, `routes/transactions.js`, and the `books`/`borrowers`/`transactions` tables into DMS's schema.
+2. Swap the standalone JWT auth for DMS's existing role-based auth middleware.
+3. Point the frontend calls at DMS's existing base URL, or mount this as a `library` module route.
+
+Default loan period is 14 days — easy to adjust in `routes/transactions.js` (`DEFAULT_LOAN_DAYS`).
