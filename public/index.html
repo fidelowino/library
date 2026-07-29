@@ -511,6 +511,7 @@ async function renderLoans(q=''){
         <select id="export-scope">
           <option value="">All records</option>
           <option value="borrowed">Unreturned only</option>
+          <option value="exchanged">Exchanged books</option>
         </select>
         <button class="btn secondary" onclick="downloadCsv()">Export CSV</button>
         <button class="btn secondary" onclick="downloadTxnPdf()">Download PDF</button>
@@ -596,6 +597,7 @@ async function returnBook(id){
   try{ await api(`/transactions/return/${id}`, {method:'POST'}); toast('Marked as returned'); loadLoans(); }
   catch(e){ toast(e.message, true); }
 }
+const EXPORT_FILENAMES = { borrowed: { csv: 'unreturned_books.csv', pdf: 'unreturned_books.pdf' }, exchanged: { csv: 'exchanged_books.csv', pdf: 'exchanged_books.pdf' } };
 function downloadCsv(){
   const scope = document.getElementById('export-scope')?.value || '';
   const params = scope ? `?status=${scope}` : '';
@@ -603,7 +605,7 @@ function downloadCsv(){
     .then(res=>res.blob())
     .then(blob=>{
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download = scope==='borrowed' ? 'unreturned_books.csv' : 'library_transactions.csv'; a.click();
+      const a = document.createElement('a'); a.href=url; a.download = EXPORT_FILENAMES[scope]?.csv || 'library_transactions.csv'; a.click();
       URL.revokeObjectURL(url);
     }).catch(()=>toast('Export failed', true));
 }
@@ -614,7 +616,7 @@ function downloadTxnPdf(){
     .then(res=>res.blob())
     .then(blob=>{
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download = scope==='borrowed' ? 'unreturned_books.pdf' : 'library_transactions.pdf'; a.click();
+      const a = document.createElement('a'); a.href=url; a.download = EXPORT_FILENAMES[scope]?.pdf || 'library_transactions.pdf'; a.click();
       URL.revokeObjectURL(url);
     }).catch(()=>toast('Export failed', true));
 }
